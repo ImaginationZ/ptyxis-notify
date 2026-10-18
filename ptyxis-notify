@@ -1,0 +1,144 @@
+#!/bin/sh
+# ptyxis-notify: make Ptyxis show its "Command completed" desktop notification
+# for the tab this runs in. Clicking the notification focuses that tab.
+#
+# Ptyxis notifies when a tab's terminal receives VTE's shell-integration
+# signals "preexec" (command started) and then "precmd" (command finished)
+# while the Ptyxis window is unfocused. This script sends those signals to the
+# terminal of the tab it runs in, so any program or hook can trigger it.
+#
+# https://github.com/ImaginationZ/ptyxis-notify   MIT License
+
+VERSION=0.1.0
+
+usage() {
+  cat <<'USAGE'
+Usage: ptyxis-notify [notify]     notify now (default; extra args are ignored)
+       ptyxis-notify start        mark "command started"
+       ptyxis-notify done         mark "command finished" (notifies after start)
+       ptyxis-notify run [--] CMD...
+                                  run CMD, notify when it exits, keep its status
+       ptyxis-notify --help | --version
+
+Environment:
+  PTYXIS_NOTIFY_TTY    terminal device to write to (default: auto-detect)
+  PTYXIS_NOTIFY_DELAY  seconds between start and done for "notify" (default 0.5)
+  PTYXIS_NOTIFY_FORCE  set to 1 to send even outside Ptyxis/VTE
+  PTYXIS_NOTIFY_DEBUG  set to 1 to explain what happens on stderr
+USAGE
+}
+
+preexec='\033]666;vte.shell.preexec!\033\\'
+precmd='\033]666;vte.shell.precmd!\033\\'
+
+debug() {
+  [ "${PTYXIS_NOTIFY_DEBUG:-}" = 1 ] && echo "ptyxis-notify: $*" >&2
+  return 0
+}
+
+# Print the pseudo-terminal of this tab: our own stdio if it is one, otherwise
+# the controlling terminal of the nearest ancestor that has one (hooks often
+# run without a terminal). Only /dev/pts/* counts: never a Linux VT.
+find_tty() {
+  if [ -n "${PTYXIS_NOTIFY_TTY:-}" ]; then
+    printf '%s\n' "$PTYXIS_NOTIFY_TTY"
+    return 0
+  fi
+  # $$ is still this script inside $(...), so these are our real fds
+  for fd in 1 2 0; do
+    t=$(readlink "/proc/$$/fd/$fd" 2>/dev/null) || continue
+    case $t in /dev/pts/[0-9]*) printf '%s\n' "$t"; return 0 ;; esac
+  done
+  # Walk up through /proc (no ps: busybox's lacks -p). Fields after the
+  # command name in /proc/PID/stat: state ppid pgrp session tty_nr ...
+  pid=$$
+  while [ "${pid:-0}" -gt 1 ] 2>/dev/null; do
+    stat=$(cat "/proc/$pid/stat" 2>/dev/null) || break
+    # shellcheck disable=SC2086 # split the fields on purpose
+    set -- ${stat##*) }
+    tty_nr=${5:-0}
+    # /dev/pts/N is major 136, minor N (Linux dev_t encoding)
+    major=$(( (tty_nr >> 8) & 0xfff ))
+    minor=$(( (tty_nr & 0xff) | ((tty_nr >> 12) & 0xfff00) ))
+    if [ "$major" -eq 136 ]; then
+      printf '/dev/pts/%s\n' "$minor"
+      return 0
+    fi
+    pid=${2:-0}
+  done
+  return 1
+}
+
+# Other terminals may print unknown sequences, so stay silent outside VTE
+in_vte() {
+  [ "${PTYXIS_NOTIFY_FORCE:-}" = 1 ] || [ -n "${PTYXIS_VERSION:-}" ] || [ -n "${VTE_VERSION:-}" ]
+}
+
+# Write one short sequence in a single write; never fail the caller
+send() {
+  if [ -z "$tty" ] || [ ! -w "$tty" ]; then
+    debug "cannot write to '$tty'"
+    return 0
+  fi
+  # shellcheck disable=SC2059 # $1 is one of the constant sequences above
+  printf "$1" 2>/dev/null >> "$tty" || debug "write to $tty failed"
+}
+
+cmd=${1:-notify}
+[ $# -gt 0 ] && shift
+
+case "$cmd" in
+  -h|--help) usage; exit 0 ;;
+  -V|--version) echo "ptyxis-notify $VERSION"; exit 0 ;;
+  -*) echo "ptyxis-notify: unknown option: $cmd" >&2; usage >&2; exit 2 ;;
+  notify|start|done|run) ;;
+  *) cmd=notify ;;  # event data some tools pass as arguments, e.g. Codex JSON
+esac
+
+if [ "$cmd" = run ] && { [ $# -eq 0 ] || [ "$*" = -- ]; }; then
+  usage >&2
+  exit 2
+fi
+
+if in_vte; then
+  tty=$(find_tty) || debug "no terminal found"
+  debug "terminal: ${tty:-none}"
+else
+  debug "not in a VTE terminal (set PTYXIS_NOTIFY_FORCE=1 to override)"
+  [ "$cmd" = run ] || exit 0
+  tty=
+fi
+
+case "$cmd" in
+  start) send "$preexec" ;;
+  done) send "$precmd" ;;
+  run)
+    [ "$1" = -- ] && shift
+    send "$preexec"
+    # Survive Ctrl-C long enough to send "finished"; the command itself keeps
+    # the default behavior. Only keyboard signals: a TERM aimed at us must
+    # still stop us
+    got=
+    trap 'got=INT' INT
+    trap 'got=QUIT' QUIT
+    # exec: always a program, never one of this script's functions or builtins
+    ( exec "$@" )
+    status=$?
+    send "$precmd"
+    trap - INT QUIT
+    # Interrupted along with the command: die by the same signal so callers
+    # (shells, make) see the interruption
+    case $got:$status in
+      INT:130|QUIT:131) kill -s "$got" $$ ;;
+    esac
+    exit "$status"
+    ;;
+  notify)
+    # Ptyxis looks up the tab's command line after "preexec" and skips the
+    # notification if "precmd" arrives first, hence the pause
+    send "$preexec"
+    sleep "${PTYXIS_NOTIFY_DELAY:-0.5}" 2>/dev/null || sleep 1
+    send "$precmd"
+    ;;
+esac
+exit 0

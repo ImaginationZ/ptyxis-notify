@@ -1,0 +1,2 @@
+# The trailing \\ in the escape sequences is the ST terminator, not a quote escape
+disable=SC1003

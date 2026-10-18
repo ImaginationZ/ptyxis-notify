@@ -1,0 +1,11 @@
+{
+  "hooks": {
+    "AfterAgent": [
+      {
+        "hooks": [
+          { "type": "command", "command": "ptyxis-notify", "timeout": 5000 }
+        ]
+      }
+    ]
+  }
+}

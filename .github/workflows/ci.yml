@@ -1,0 +1,23 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install shells and shellcheck
+        run: sudo apt-get update && sudo apt-get install -y dash zsh busybox shellcheck
+      - name: Shellcheck
+        run: shellcheck -s sh ptyxis-notify tests/run.sh
+      - name: zsh syntax
+        run: for f in shell/ptyxis-notify.zsh ptyxis-notify.plugin.zsh; do zsh -n "$f" || exit 1; done
+      - name: Tests
+        run: sh tests/run.sh

@@ -1,0 +1,5 @@
+# ~/.aider.conf.yml (or: aider --notifications --notifications-command ptyxis-notify)
+# Aider runs this when a response is done and it is waiting for your input.
+# The command only runs while notifications are enabled.
+notifications: true
+notifications-command: ptyxis-notify

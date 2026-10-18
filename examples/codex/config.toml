@@ -1,0 +1,4 @@
+# ~/.codex/config.toml
+# Codex runs this after each agent turn, passing event JSON as an argument
+# (ptyxis-notify ignores it).
+notify = ["ptyxis-notify", "notify"]
