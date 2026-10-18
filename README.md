@@ -12,7 +12,7 @@ they never fire.
 [![CI](https://github.com/ImaginationZ/ptyxis-notify/actions/workflows/ci.yml/badge.svg)](https://github.com/ImaginationZ/ptyxis-notify/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-<!-- TODO: demo.gif: notification appears while in the browser, click, Ptyxis focuses the tab -->
+![A coding agent finishes in a background Ptyxis tab; clicking the "Command completed" notification jumps back to that tab](docs/demo.gif)
 
 One POSIX `sh` script, no dependencies. It doesn't draw notifications
 itself. It triggers Ptyxis's own built-in "Command completed" notification,
